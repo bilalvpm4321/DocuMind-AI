@@ -1,17 +1,22 @@
-import { useRef, useState } from 'react'
+import { useRef, useState, useEffect } from 'react'
 import {
   FileText, Upload, Send, LoaderCircle, Bot, UserRound,
-  FileUp, Sparkles, Trash2, Cpu, Cloud, Layers, Settings, X
+  FileUp, Sparkles, Trash2, Cpu, Cloud, Layers, Settings, X,
+  Globe, Languages, ChevronDown
 } from 'lucide-react'
 
 type Source = { page: number | null; kind: string; text: string; score: number }
+export type AnswerLanguage = 'en' | 'ml'
+
 type Message = {
   role: 'user' | 'assistant'
   content: string
   provider?: 'gemini' | 'ollama' | 'both'
+  answer_language?: AnswerLanguage
   answers?: { gemini?: string; ollama?: string }
   sources?: Source[]
 }
+
 type UploadedDocument = {
   document_id: string
   filename: string
@@ -33,7 +38,26 @@ export default function App() {
   const [sending, setSending] = useState(false)
   const [error, setError] = useState('')
   const [provider, setProvider] = useState<ProviderChoice>('gemini')
+  const [answerLanguage, setAnswerLanguage] = useState<AnswerLanguage>('en')
   const [showSettings, setShowSettings] = useState(false)
+  const [showScrollBottom, setShowScrollBottom] = useState(false)
+  const messagesEndRef = useRef<HTMLDivElement>(null)
+  const chatStreamRef = useRef<HTMLElement>(null)
+
+  const scrollToBottom = (smooth = true) => {
+    messagesEndRef.current?.scrollIntoView({ behavior: smooth ? 'smooth' : 'auto' })
+  }
+
+  useEffect(() => {
+    scrollToBottom(true)
+  }, [messages, sending])
+
+  const handleScroll = () => {
+    if (!chatStreamRef.current) return
+    const { scrollTop, scrollHeight, clientHeight } = chatStreamRef.current
+    const isUp = scrollHeight - scrollTop - clientHeight > 100
+    setShowScrollBottom(isUp)
+  }
 
   async function uploadFile(file?: File) {
     if (!file) return
@@ -50,7 +74,7 @@ export default function App() {
       setDocument(data)
       setMessages([{
         role: 'assistant',
-        content: `I've processed **${data.filename}** and indexed ${data.chunks} text chunks. You can now ask questions using Gemini, Ollama, or run both to compare answers side-by-side!`
+        content: `I've processed **${data.filename}** and indexed ${data.chunks} text chunks. You can now ask questions using Gemini, Ollama, or run both to compare answers side-by-side in English or Malayalam!`
       }])
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Could not upload file')
@@ -77,6 +101,8 @@ export default function App() {
           document_id: document.document_id,
           question: clean,
           provider: provider,
+          answer_language: answerLanguage,
+          language: answerLanguage,
           history: prior.map(m => ({ role: m.role, content: m.content })),
         }),
       })
@@ -88,6 +114,7 @@ export default function App() {
           role: 'assistant',
           content: data.answer,
           provider: data.provider || provider,
+          answer_language: data.answer_language || answerLanguage,
           answers: data.answers,
           sources: data.sources
         }
@@ -98,8 +125,11 @@ export default function App() {
         ...current,
         {
           role: 'assistant',
-          content: 'I could not answer that question. Please verify your selected provider settings and backend connection.',
-          provider: provider
+          content: answerLanguage === 'ml'
+            ? 'ഈ ചോദ്യത്തിന് ഉത്തരം കണ്ടെത്താൻ കഴിഞ്ഞില്ല. സെർവർ ക്രമീകരണങ്ങളും കണക്ഷനും പരിശോധിക്കുക.'
+            : 'I could not answer that question. Please verify your selected provider settings and backend connection.',
+          provider: provider,
+          answer_language: answerLanguage,
         }
       ])
     } finally {
@@ -119,81 +149,104 @@ export default function App() {
       {/* Sidebar */}
       <aside className="sidebar">
         <div className="brand">
-          <div className="brand-mark"><Sparkles size={20} /></div>
+          <div className="brand-mark"><Bot size={22} /></div>
           <div>
             <strong>DocuMind AI</strong>
-            <span>Document Intelligence</span>
+            <span>Document Intelligence RAG</span>
           </div>
         </div>
 
-        <button className="new-doc" onClick={() => fileInput.current?.click()}>
-          <Upload size={17} /> Upload a document
+        <button className="new-doc" onClick={reset} title="Start new document session">
+          <Trash2 size={15} /> New Session
         </button>
-        <input
-          ref={fileInput}
-          type="file"
-          hidden
-          accept=".pdf,.docx,.txt,.png,.jpg,.jpeg,.webp"
-          onChange={e => uploadFile(e.target.files?.[0])}
-        />
 
-        <div className="side-label">AI ENGINE SELECTION</div>
+        <div className="side-label">ENGINE SELECTION</div>
         <div className="provider-selector-sidebar">
           <button
+            type="button"
             className={`provider-tab ${provider === 'gemini' ? 'active' : ''}`}
             onClick={() => setProvider('gemini')}
           >
-            <Cloud size={15} />
-            <div className="provider-text">
+            <Cloud size={16} />
+            <div>
               <strong>Google Gemini</strong>
-              <small>Cloud Fast & Smart</small>
+              <small>Cloud API · Fast</small>
             </div>
           </button>
 
           <button
+            type="button"
             className={`provider-tab ${provider === 'ollama' ? 'active' : ''}`}
             onClick={() => setProvider('ollama')}
           >
-            <Cpu size={15} />
-            <div className="provider-text">
+            <Cpu size={16} />
+            <div>
               <strong>Local Ollama</strong>
-              <small>Private & Offline</small>
+              <small>Offline · 100% Private</small>
             </div>
           </button>
 
           <button
+            type="button"
             className={`provider-tab ${provider === 'both' ? 'active' : ''}`}
             onClick={() => setProvider('both')}
           >
-            <Layers size={15} />
-            <div className="provider-text">
-              <strong>Run Both</strong>
-              <small>Compare Side-by-Side</small>
+            <Layers size={16} />
+            <div>
+              <strong>Dual Comparison</strong>
+              <small>Side-by-Side Execution</small>
             </div>
           </button>
         </div>
 
-        <div className="side-label">WORKSPACE</div>
-        {document ? (
-          <div className="document-row">
-            <FileText size={19} />
-            <div className="document-name">
-              <strong>{document.filename}</strong>
-              <span>{document.chunks} indexed chunks</span>
+        <div className="side-label">RESPONSE LANGUAGE</div>
+        <div className="lang-selector-sidebar" role="radiogroup" aria-label="Sidebar language selector">
+          <button
+            type="button"
+            role="radio"
+            aria-checked={answerLanguage === 'en'}
+            className={`sidebar-lang-tab ${answerLanguage === 'en' ? 'active' : ''}`}
+            onClick={() => setAnswerLanguage('en')}
+          >
+            <Globe size={15} />
+            <div>
+              <strong>English</strong>
+              <small>Standard grounded answers</small>
             </div>
-            <button className="icon-button" title="Remove document" onClick={reset}>
-              <Trash2 size={15} />
-            </button>
+          </button>
+          <button
+            type="button"
+            role="radio"
+            aria-checked={answerLanguage === 'ml'}
+            className={`sidebar-lang-tab ml-tab ${answerLanguage === 'ml' ? 'active active-ml' : ''}`}
+            onClick={() => setAnswerLanguage('ml')}
+          >
+            <Languages size={15} />
+            <div>
+              <strong>മലയാളം (Malayalam)</strong>
+              <small>മലയാളം ലിപി · Localized Q&A</small>
+            </div>
+          </button>
+        </div>
+
+        <div className="side-label">ACTIVE DOCUMENT</div>
+        {document ? (
+          <div className="active-doc-card">
+            <div className="doc-icon"><FileText size={18} /></div>
+            <div className="doc-meta">
+              <span className="doc-name" title={document.filename}>{document.filename}</span>
+              <span className="doc-sub">{document.pages_with_text} pages · {document.chunks} chunks</span>
+            </div>
           </div>
         ) : (
-          <div className="empty-sidebar">Your uploaded documents will appear here.</div>
+          <p className="empty-sidebar">No document loaded. Upload a PDF, Word doc, or image to start chatting.</p>
         )}
 
         <div className="sidebar-bottom">
           <button className="settings-trigger" onClick={() => setShowSettings(true)}>
-            <Settings size={14} /> Provider Settings
+            <Settings size={14} /> Settings
           </button>
-          <div className="version">v0.2 Multi-LLM</div>
+          <span className="version">v0.2.0 ML</span>
         </div>
       </aside>
 
@@ -201,14 +254,41 @@ export default function App() {
       <main className="main-panel">
         <header className="topbar">
           <div>
-            <span className="eyebrow">DOCUMENT RAG INTELLIGENCE</span>
+            <span className="eyebrow">RAG DOCUMENT CHAT</span>
             <h1>Chat with your document</h1>
           </div>
 
           <div className="topbar-controls">
-            {/* Quick Provider Toggle */}
-            <div className="pill-group">
+            {/* Language Selector Segmented Control */}
+            <div className="lang-toggle-group" role="radiogroup" aria-label="Select answer language">
               <button
+                type="button"
+                role="radio"
+                aria-checked={answerLanguage === 'en'}
+                className={`lang-pill-btn ${answerLanguage === 'en' ? 'active' : ''}`}
+                onClick={() => setAnswerLanguage('en')}
+                title="Generate answers in English"
+              >
+                <Globe size={13} /> English
+              </button>
+              <button
+                type="button"
+                role="radio"
+                aria-checked={answerLanguage === 'ml'}
+                className={`lang-pill-btn ${answerLanguage === 'ml' ? 'active active-ml' : ''}`}
+                onClick={() => setAnswerLanguage('ml')}
+                title="മലയാളത്തിൽ ഉത്തരം നൽകുക"
+              >
+                <Languages size={13} /> മലയാളം
+              </button>
+            </div>
+
+            {/* Quick Provider Toggle */}
+            <div className="pill-group" role="radiogroup" aria-label="Select model provider">
+              <button
+                type="button"
+                role="radio"
+                aria-checked={provider === 'gemini'}
                 className={`pill-btn ${provider === 'gemini' ? 'active' : ''}`}
                 onClick={() => setProvider('gemini')}
                 title="Use Google Gemini API"
@@ -216,6 +296,9 @@ export default function App() {
                 <Cloud size={13} /> Gemini
               </button>
               <button
+                type="button"
+                role="radio"
+                aria-checked={provider === 'ollama'}
                 className={`pill-btn ${provider === 'ollama' ? 'active' : ''}`}
                 onClick={() => setProvider('ollama')}
                 title="Use Local Ollama"
@@ -223,6 +306,9 @@ export default function App() {
                 <Cpu size={13} /> Ollama
               </button>
               <button
+                type="button"
+                role="radio"
+                aria-checked={provider === 'both'}
                 className={`pill-btn ${provider === 'both' ? 'active' : ''}`}
                 onClick={() => setProvider('both')}
                 title="Run Gemini & Ollama simultaneously"
@@ -246,55 +332,52 @@ export default function App() {
             <h2>What would you like to explore?</h2>
             <p>
               Upload any PDF, Word document, TXT, or scanned image to ask questions with citations.
-              Switch seamlessly between <strong>Google Gemini</strong>, <strong>Local Ollama</strong>, or <strong>Both</strong>.
+              Switch seamlessly between <strong>English</strong> and <strong>മലയാളം</strong>, and choose between <strong>Google Gemini</strong>, <strong>Local Ollama</strong>, or <strong>Both</strong>.
             </p>
 
-            <button
-              className="primary-button"
+            <div
+              className={`dropzone ${uploading ? 'uploading' : ''}`}
               onClick={() => fileInput.current?.click()}
-              disabled={uploading}
+              onDragOver={e => e.preventDefault()}
+              onDrop={e => {
+                e.preventDefault()
+                void uploadFile(e.dataTransfer.files[0])
+              }}
             >
-              {uploading ? <LoaderCircle className="spin" size={18} /> : <Upload size={18} />}
-              {uploading ? 'Processing & indexing document…' : 'Choose a document'}
-            </button>
-
-            <div className="file-types">
-              PDF · DOCX · TXT · PNG · JPG · WEBP <span>Up to 20 MB</span>
-            </div>
-
-            <div className="suggestion-grid">
-              <button onClick={() => fileInput.current?.click()}>
-                <FileText size={18} />
-                <span>
-                  <strong>Financial & Legal Reports</strong>
-                  <small>Extract clauses and verify numbers</small>
-                </span>
-              </button>
-              <button onClick={() => fileInput.current?.click()}>
-                <Sparkles size={18} />
-                <span>
-                  <strong>Research & Manuals</strong>
-                  <small>Summarize key insights and citations</small>
-                </span>
-              </button>
+              <input
+                ref={fileInput}
+                type="file"
+                hidden
+                accept=".pdf,.docx,.txt,.png,.jpg,.jpeg,.webp"
+                onChange={e => void uploadFile(e.target.files?.[0])}
+              />
+              <div className="dropzone-inner">
+                {uploading ? (
+                  <>
+                    <LoaderCircle size={32} className="spin dropzone-spin" />
+                    <strong>Extracting & Indexing document…</strong>
+                    <span>Running PyMuPDF, OCR fallback, and FAISS vector embeddings</span>
+                  </>
+                ) : (
+                  <>
+                    <Upload size={32} />
+                    <strong>Drop a document here, or browse</strong>
+                    <span>Supports PDF, DOCX, TXT, PNG, JPG, JPEG, WEBP (up to 20MB)</span>
+                  </>
+                )}
+              </div>
             </div>
           </section>
         ) : (
           <>
-            <section className="document-summary">
-              <div className="file-icon"><FileText size={22} /></div>
-              <div className="summary-copy">
-                <strong>{document.filename}</strong>
-                <span>{document.pages_with_text} content sections · {document.chunks} chunks indexed</span>
-              </div>
-              <div className="mode-indicator">
-                Mode: <strong>{provider.toUpperCase()}</strong>
-              </div>
-            </section>
-
-            <section className="chat-area" aria-live="polite">
+            <section
+              className="chat-stream chat-area"
+              ref={chatStreamRef}
+              onScroll={handleScroll}
+              aria-live="polite"
+            >
               {messages.map((message, i) => (
-                <article className={`message ${message.role}`} key={i}>
+                <div key={i} className={`message message-row ${message.role}`}>
                   <div className="avatar">
                     {message.role === 'assistant' ? <Bot size={18} /> : <UserRound size={18} />}
                   </div>
@@ -304,12 +387,21 @@ export default function App() {
                       <span className="message-label">
                         {message.role === 'assistant' ? 'DOCUMENT AI' : 'YOU'}
                       </span>
-                      {message.role === 'assistant' && message.provider && (
-                        <span className={`provider-badge ${message.provider}`}>
-                          {message.provider === 'gemini' && '🌟 Gemini Flash'}
-                          {message.provider === 'ollama' && '🦙 Ollama Local'}
-                          {message.provider === 'both' && '⚡ Gemini & Ollama Comparison'}
-                        </span>
+                      {message.role === 'assistant' && (
+                        <div className="badges-group">
+                          {message.provider && (
+                            <span className={`provider-badge ${message.provider}`}>
+                              {message.provider === 'gemini' && '🌟 Gemini Flash'}
+                              {message.provider === 'ollama' && '🦙 Ollama Local'}
+                              {message.provider === 'both' && '⚡ Gemini & Ollama Comparison'}
+                            </span>
+                          )}
+                          {message.answer_language && (
+                            <span className={`lang-badge ${message.answer_language}`}>
+                              {message.answer_language === 'ml' ? '🌐 മലയാളം' : '🌐 English'}
+                            </span>
+                          )}
+                        </div>
                       )}
                     </div>
 
@@ -358,25 +450,45 @@ export default function App() {
                       </details>
                     )}
                   </div>
-                </article>
+                </div>
               ))}
 
               {sending && (
                 <div className="thinking">
                   <LoaderCircle size={16} className="spin" />
-                  {provider === 'both'
-                    ? 'Querying both Gemini and Ollama in parallel…'
-                    : `Searching document and asking ${provider === 'gemini' ? 'Gemini' : 'Ollama'}…`}
+                  {answerLanguage === 'ml'
+                    ? (provider === 'both'
+                        ? 'രേഖ പരിശോധിച്ച് Gemini-യും Ollama-യും ഉപയോഗിച്ച് മലയാളത്തിൽ മറുപടി തയ്യാറാക്കുന്നു…'
+                        : `രേഖ പരിശോധിച്ച് ${provider === 'gemini' ? 'Gemini' : 'Ollama'} വഴി മലയാളത്തിൽ മറുപടി തയ്യാറാക്കുന്നു…`)
+                    : (provider === 'both'
+                        ? 'Querying both Gemini and Ollama in parallel…'
+                        : `Searching document and asking ${provider === 'gemini' ? 'Gemini' : 'Ollama'}…`)}
                 </div>
               )}
+              <div ref={messagesEndRef} />
             </section>
+
+            {showScrollBottom && (
+              <button
+                type="button"
+                className="scroll-bottom-btn"
+                onClick={() => scrollToBottom(true)}
+                title="Scroll down to latest response"
+                aria-label="Scroll to bottom"
+              >
+                <ChevronDown size={15} />
+                <span>Jump to latest</span>
+              </button>
+            )}
 
             <div className="chat-composer">
               <form onSubmit={e => { e.preventDefault(); void sendQuestion() }}>
                 <textarea
                   value={question}
                   onChange={e => setQuestion(e.target.value)}
-                  placeholder={`Ask a question with ${provider === 'both' ? 'Gemini & Ollama' : provider === 'gemini' ? 'Gemini' : 'Ollama'}…`}
+                  placeholder={answerLanguage === 'ml'
+                    ? `രേഖയെക്കുറിച്ച് ചോദ്യങ്ങൾ ചോദിക്കുക (${provider === 'both' ? 'Gemini & Ollama' : provider === 'gemini' ? 'Gemini' : 'Ollama'})…`
+                    : `Ask a question with ${provider === 'both' ? 'Gemini & Ollama' : provider === 'gemini' ? 'Gemini' : 'Ollama'}…`}
                   rows={2}
                   onKeyDown={e => {
                     if (e.key === 'Enter' && !e.shiftKey) {
@@ -386,8 +498,19 @@ export default function App() {
                   }}
                 />
                 <div className="composer-footer">
-                  <div className="composer-provider-hint">
-                    Current engine: <strong>{provider.toUpperCase()}</strong>
+                  <div className="composer-footer-left">
+                    <div className="composer-provider-hint">
+                      Engine: <strong>{provider.toUpperCase()}</strong>
+                    </div>
+                    <button
+                      type="button"
+                      className={`composer-lang-pill ${answerLanguage === 'ml' ? 'ml-active' : ''}`}
+                      onClick={() => setAnswerLanguage(prev => prev === 'en' ? 'ml' : 'en')}
+                      title="Click to toggle response language between English and Malayalam"
+                    >
+                      <Languages size={13} />
+                      <span>Answer: <strong>{answerLanguage === 'en' ? 'English' : 'മലയാളം'}</strong></span>
+                    </button>
                   </div>
                   <button className="send-button" type="submit" disabled={!question.trim() || sending}>
                     <Send size={16} /> Send
@@ -405,13 +528,41 @@ export default function App() {
           <div className="modal-overlay" onClick={() => setShowSettings(false)}>
             <div className="modal-box" onClick={e => e.stopPropagation()}>
               <div className="modal-header">
-                <h3><Settings size={18} /> Model & Engine Configuration</h3>
+                <h3><Settings size={18} /> Model & Language Configuration</h3>
                 <button className="icon-button" onClick={() => setShowSettings(false)}><X size={18} /></button>
               </div>
 
               <div className="modal-body">
-                <p>Configure which LLM engines are used for Document Q&A:</p>
+                <h4>Answer Language (മറുപടി ഭാഷ)</h4>
+                <div className="modal-lang-grid" role="radiogroup" aria-label="Modal language selection">
+                  <label className={`lang-modal-card ${answerLanguage === 'en' ? 'selected' : ''}`}>
+                    <input
+                      type="radio"
+                      name="modalLanguage"
+                      checked={answerLanguage === 'en'}
+                      onChange={() => setAnswerLanguage('en')}
+                    />
+                    <div>
+                      <strong>🇺🇸 English (Default)</strong>
+                      <small>Answers synthesized in clear English with page citations.</small>
+                    </div>
+                  </label>
 
+                  <label className={`lang-modal-card ml-card ${answerLanguage === 'ml' ? 'selected' : ''}`}>
+                    <input
+                      type="radio"
+                      name="modalLanguage"
+                      checked={answerLanguage === 'ml'}
+                      onChange={() => setAnswerLanguage('ml')}
+                    />
+                    <div>
+                      <strong>🌴 മലയാളം (Malayalam)</strong>
+                      <small>Answers written in natural Malayalam script (മലയാളം ലിപി) with accurate facts.</small>
+                    </div>
+                  </label>
+                </div>
+
+                <h4 style={{ marginTop: 12 }}>LLM Engine Architecture</h4>
                 <div className="settings-option">
                   <label>
                     <input
@@ -466,7 +617,7 @@ export default function App() {
         )}
 
         <footer className="footer-note">
-          Document Intelligence RAG · Choose between Gemini, Ollama, or Dual Execution
+          DocuMind AI · Retrieval-Augmented Generation · Multi-LLM & Malayalam Mode
         </footer>
       </main>
     </div>
