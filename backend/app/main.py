@@ -1,35 +1,34 @@
 from uuid import uuid4
 from fastapi import FastAPI, File, HTTPException, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel, Field
-from .config import LLM_PROVIDER, MAX_UPLOAD_MB
+from .config import LLM_PROVIDER, MAX_UPLOAD_MB, DEFAULT_ANSWER_LANGUAGE, SUPPORTED_ANSWER_LANGUAGES, EMBEDDING_MODEL
 from .document_loader import extract_document, SUPPORTED_EXTENSIONS
 from .llm import generate_answer
-from .rag import index_pages, retrieve
+from .rag import index_pages, retrieve, IncompatibleIndexError
+from .schemas import ChatRequest, AnswerLanguage
 
-app = FastAPI(title="Document Intelligence Chatbot API", version="0.1.0")
+app = FastAPI(title="DocuMind AI - Document Intelligence Chatbot API", version="0.2.0")
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173"],
+    allow_origins=["http://localhost:5173", "http://127.0.0.1:5173", "*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Prototype metadata storage; this is intentionally in memory for the first lesson.
+# In-memory document metadata storage for runtime session
 DOCUMENT_META: dict[str, dict] = {}
-
-
-class ChatRequest(BaseModel):
-    document_id: str
-    question: str = Field(min_length=1, max_length=4000)
-    history: list[dict] = Field(default_factory=list)
-    provider: str = Field(default="gemini")
 
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "provider": LLM_PROVIDER}
+    return {
+        "status": "ok",
+        "provider": LLM_PROVIDER,
+        "default_answer_language": DEFAULT_ANSWER_LANGUAGE,
+        "supported_languages": SUPPORTED_ANSWER_LANGUAGES,
+        "embedding_model": EMBEDDING_MODEL,
+    }
 
 
 @app.post("/api/documents/upload")
@@ -68,11 +67,20 @@ async def chat(request: ChatRequest):
         raise HTTPException(404, "Document not found. Upload it again if the backend restarted.")
     try:
         chunks = retrieve(request.document_id, request.question)
-        result = await generate_answer(request.question, chunks, request.history, provider=request.provider)
+        result = await generate_answer(
+            request.question,
+            chunks,
+            request.history,
+            provider=request.provider,
+            answer_language=request.answer_language,
+        )
     except KeyError as exc:
         raise HTTPException(404, str(exc)) from exc
+    except IncompatibleIndexError as exc:
+        raise HTTPException(409, str(exc)) from exc
     except Exception as exc:
         raise HTTPException(502, f"Could not generate an answer: {str(exc)}") from exc
+
     sources = [
         {"page": c.get("page"), "kind": c.get("kind"), "text": c["text"], "score": round(c["score"], 3)}
         for c in chunks
@@ -80,6 +88,7 @@ async def chat(request: ChatRequest):
     return {
         "answer": result["answer"],
         "provider": result.get("provider", request.provider),
+        "answer_language": result.get("answer_language", request.answer_language.value),
         "answers": result.get("answers", {}),
         "sources": sources,
     }
